@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -57,6 +58,7 @@ func addTestFetch(repo string, dgst digest.Digest, content []byte, m *testutil.R
 			Body:       content,
 			Headers: http.Header(map[string][]string{
 				"Content-Length": {fmt.Sprint(len(content))},
+				"Content-Type":   {"application/octet-stream"},
 				"Last-Modified":  {time.Now().Add(-1 * time.Second).Format(time.ANSIC)},
 			}),
 		},
@@ -71,6 +73,7 @@ func addTestFetch(repo string, dgst digest.Digest, content []byte, m *testutil.R
 			StatusCode: http.StatusOK,
 			Headers: http.Header(map[string][]string{
 				"Content-Length": {fmt.Sprint(len(content))},
+				"Content-Type":   {"application/octet-stream"},
 				"Last-Modified":  {time.Now().Add(-1 * time.Second).Format(time.ANSIC)},
 			}),
 		},
@@ -97,6 +100,104 @@ func addTestCatalog(route string, content []byte, link string, m *testutil.Reque
 			Headers:    http.Header(headers),
 		},
 	})
+}
+
+func TestBlobServeBlob(t *testing.T) {
+	dgst, blob := newRandomBlob(1024)
+	var m testutil.RequestResponseMap
+	addTestFetch("test.example.com/repo1", dgst, blob, &m)
+
+	e, c := testServer(m)
+	defer c()
+
+	ctx := context.Background()
+	repo, _ := reference.WithName("test.example.com/repo1")
+	r, err := NewRepository(repo, e, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := r.Blobs(ctx)
+
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/", nil)
+
+	err = l.ServeBlob(ctx, resp, req, dgst)
+	if err != nil {
+		t.Errorf("Error serving blob: %s", err.Error())
+	}
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		t.Errorf("Error reading response body: %s", err.Error())
+	}
+	if string(body) != string(blob) {
+		t.Errorf("Unexpected response body. Got %q, expected %q", string(body), string(blob))
+	}
+
+	expectedHeaders := []struct {
+		Name  string
+		Value string
+	}{
+		{Name: "Content-Length", Value: "1024"},
+		{Name: "Content-Type", Value: "application/octet-stream"},
+		{Name: "Docker-Content-Digest", Value: dgst.String()},
+		{Name: "Etag", Value: dgst.String()},
+	}
+
+	for _, h := range expectedHeaders {
+		if resp.Header().Get(h.Name) != h.Value {
+			t.Errorf("Unexpected %s. Got %s, expected %s", h.Name, resp.Header().Get(h.Name), h.Value)
+		}
+	}
+}
+
+func TestBlobServeBlobHEAD(t *testing.T) {
+	dgst, blob := newRandomBlob(1024)
+	var m testutil.RequestResponseMap
+	addTestFetch("test.example.com/repo1", dgst, blob, &m)
+
+	e, c := testServer(m)
+	defer c()
+
+	ctx := context.Background()
+	repo, _ := reference.WithName("test.example.com/repo1")
+	r, err := NewRepository(repo, e, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := r.Blobs(ctx)
+
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest("HEAD", "/", nil)
+
+	err = l.ServeBlob(ctx, resp, req, dgst)
+	if err != nil {
+		t.Errorf("Error serving blob: %s", err.Error())
+	}
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		t.Errorf("Error reading response body: %s", err.Error())
+	}
+	if string(body) != "" {
+		t.Errorf("Unexpected response body. Got %q, expected %q", string(body), "")
+	}
+
+	expectedHeaders := []struct {
+		Name  string
+		Value string
+	}{
+		{Name: "Content-Length", Value: "1024"},
+		{Name: "Content-Type", Value: "application/octet-stream"},
+		{Name: "Docker-Content-Digest", Value: dgst.String()},
+		{Name: "Etag", Value: dgst.String()},
+	}
+
+	for _, h := range expectedHeaders {
+		if resp.Header().Get(h.Name) != h.Value {
+			t.Errorf("Unexpected %s. Got %s, expected %s", h.Name, resp.Header().Get(h.Name), h.Value)
+		}
+	}
 }
 
 func TestBlobDelete(t *testing.T) {
@@ -470,6 +571,198 @@ func TestBlobUploadMonolithic(t *testing.T) {
 
 	if blob.Size != int64(len(b1)) {
 		t.Fatalf("Unexpected blob size: %d; expected: %d", blob.Size, len(b1))
+	}
+}
+
+func TestBlobUploadMonolithicDockerUploadUUIDFromURL(t *testing.T) {
+	dgst, b1 := newRandomBlob(1024)
+	var m testutil.RequestResponseMap
+	repo, _ := reference.WithName("test.example.com/uploadrepo")
+	uploadID := uuid.Generate().String()
+	m = append(m, testutil.RequestResponseMapping{
+		Request: testutil.Request{
+			Method: "POST",
+			Route:  "/v2/" + repo.Name() + "/blobs/uploads/",
+		},
+		Response: testutil.Response{
+			StatusCode: http.StatusAccepted,
+			Headers: http.Header(map[string][]string{
+				"Content-Length": {"0"},
+				"Location":       {"/v2/" + repo.Name() + "/blobs/uploads/" + uploadID},
+				"Range":          {"0-0"},
+			}),
+		},
+	})
+	m = append(m, testutil.RequestResponseMapping{
+		Request: testutil.Request{
+			Method: "PATCH",
+			Route:  "/v2/" + repo.Name() + "/blobs/uploads/" + uploadID,
+			Body:   b1,
+		},
+		Response: testutil.Response{
+			StatusCode: http.StatusAccepted,
+			Headers: http.Header(map[string][]string{
+				"Location":              {"/v2/" + repo.Name() + "/blobs/uploads/" + uploadID},
+				"Content-Length":        {"0"},
+				"Docker-Content-Digest": {dgst.String()},
+				"Range":                 {fmt.Sprintf("0-%d", len(b1)-1)},
+			}),
+		},
+	})
+	m = append(m, testutil.RequestResponseMapping{
+		Request: testutil.Request{
+			Method: "PUT",
+			Route:  "/v2/" + repo.Name() + "/blobs/uploads/" + uploadID,
+			QueryParams: map[string][]string{
+				"digest": {dgst.String()},
+			},
+		},
+		Response: testutil.Response{
+			StatusCode: http.StatusCreated,
+			Headers: http.Header(map[string][]string{
+				"Content-Length":        {"0"},
+				"Docker-Content-Digest": {dgst.String()},
+				"Content-Range":         {fmt.Sprintf("0-%d", len(b1)-1)},
+			}),
+		},
+	})
+	m = append(m, testutil.RequestResponseMapping{
+		Request: testutil.Request{
+			Method: "HEAD",
+			Route:  "/v2/" + repo.Name() + "/blobs/" + dgst.String(),
+		},
+		Response: testutil.Response{
+			StatusCode: http.StatusOK,
+			Headers: http.Header(map[string][]string{
+				"Content-Length": {fmt.Sprint(len(b1))},
+				"Last-Modified":  {time.Now().Add(-1 * time.Second).Format(time.ANSIC)},
+			}),
+		},
+	})
+
+	e, c := testServer(m)
+	defer c()
+
+	ctx := context.Background()
+	r, err := NewRepository(repo, e, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := r.Blobs(ctx)
+
+	upload, err := l.Create(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if upload.ID() != uploadID {
+		log.Fatalf("Unexpected UUID %s; expected %s", upload.ID(), uploadID)
+	}
+
+	n, err := upload.ReadFrom(bytes.NewReader(b1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != int64(len(b1)) {
+		t.Fatalf("Unexpected ReadFrom length: %d; expected: %d", n, len(b1))
+	}
+
+	blob, err := upload.Commit(ctx, distribution.Descriptor{
+		Digest: dgst,
+		Size:   int64(len(b1)),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if blob.Size != int64(len(b1)) {
+		t.Fatalf("Unexpected blob size: %d; expected: %d", blob.Size, len(b1))
+	}
+}
+
+func TestBlobUploadMonolithicNoDockerUploadUUID(t *testing.T) {
+	dgst, b1 := newRandomBlob(1024)
+	var m testutil.RequestResponseMap
+	repo, _ := reference.WithName("test.example.com/uploadrepo")
+	m = append(m, testutil.RequestResponseMapping{
+		Request: testutil.Request{
+			Method: "POST",
+			Route:  "/v2/" + repo.Name() + "/blobs/uploads/",
+		},
+		Response: testutil.Response{
+			StatusCode: http.StatusAccepted,
+			Headers: http.Header(map[string][]string{
+				"Content-Length": {"0"},
+				"Location":       {"/v2/" + repo.Name() + "/blobs/uploads/"},
+				"Range":          {"0-0"},
+			}),
+		},
+	})
+	m = append(m, testutil.RequestResponseMapping{
+		Request: testutil.Request{
+			Method: "PATCH",
+			Route:  "/v2/" + repo.Name() + "/blobs/uploads/",
+			Body:   b1,
+		},
+		Response: testutil.Response{
+			StatusCode: http.StatusAccepted,
+			Headers: http.Header(map[string][]string{
+				"Location":              {"/v2/" + repo.Name() + "/blobs/uploads/"},
+				"Content-Length":        {"0"},
+				"Docker-Content-Digest": {dgst.String()},
+				"Range":                 {fmt.Sprintf("0-%d", len(b1)-1)},
+			}),
+		},
+	})
+	m = append(m, testutil.RequestResponseMapping{
+		Request: testutil.Request{
+			Method: "PUT",
+			Route:  "/v2/" + repo.Name() + "/blobs/uploads/",
+			QueryParams: map[string][]string{
+				"digest": {dgst.String()},
+			},
+		},
+		Response: testutil.Response{
+			StatusCode: http.StatusCreated,
+			Headers: http.Header(map[string][]string{
+				"Content-Length":        {"0"},
+				"Docker-Content-Digest": {dgst.String()},
+				"Content-Range":         {fmt.Sprintf("0-%d", len(b1)-1)},
+			}),
+		},
+	})
+	m = append(m, testutil.RequestResponseMapping{
+		Request: testutil.Request{
+			Method: "HEAD",
+			Route:  "/v2/" + repo.Name() + "/blobs/" + dgst.String(),
+		},
+		Response: testutil.Response{
+			StatusCode: http.StatusOK,
+			Headers: http.Header(map[string][]string{
+				"Content-Length": {fmt.Sprint(len(b1))},
+				"Last-Modified":  {time.Now().Add(-1 * time.Second).Format(time.ANSIC)},
+			}),
+		},
+	})
+
+	e, c := testServer(m)
+	defer c()
+
+	ctx := context.Background()
+	r, err := NewRepository(repo, e, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := r.Blobs(ctx)
+
+	upload, err := l.Create(ctx)
+
+	if err.Error() != "cannot retrieve docker upload UUID" {
+		log.Fatalf("expected rejection to retrieve docker upload UUID error. Got %q", err)
+	}
+
+	if upload != nil {
+		log.Fatal("Expected upload to be nil")
 	}
 }
 
