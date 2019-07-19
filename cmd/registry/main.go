@@ -8,6 +8,7 @@ import (
 	_ "github.com/docker/distribution/registry/auth/silly"
 	_ "github.com/docker/distribution/registry/auth/token"
 	_ "github.com/docker/distribution/registry/proxy"
+	_ "github.com/docker/distribution/registry/storage/driver/ipfs"
 	_ "github.com/docker/distribution/registry/storage/driver/azure"
 	_ "github.com/docker/distribution/registry/storage/driver/filesystem"
 	_ "github.com/docker/distribution/registry/storage/driver/gcs"
