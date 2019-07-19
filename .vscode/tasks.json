@@ -1,0 +1,30 @@
+{
+    // See https://go.microsoft.com/fwlink/?LinkId=733558
+    // for the documentation about the tasks.json format
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build",
+            "type": "shell",
+            "command": "CGO_ENABLED=0 make PREFIX=/go clean binaries",
+            "problemMatcher": [
+                "$go"
+            ]
+        },
+        {
+            "label": "createPasswordDirectory",
+            "command": "mkdir",
+            "args": [
+                "-p",
+                "/auth"
+            ]
+        },
+        {
+            "label": "setPassword",
+            "command": "htpasswd",
+            "dependsOn": "createPasswordDirectory",
+            "type": "shell",
+            "args": ["-Bbn", "moritonal", "tfS9Wy3KpKkd1PEGR2tn", ">", "/auth/htpasswd"]
+        }
+    ]
+}
