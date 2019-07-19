@@ -8,6 +8,8 @@ import (
 	"bytes"
 	"io/ioutil"
 	"strings"
+	"net"
+	"encoding/json"
 
 	files "github.com/ipfs/go-ipfs-files"
 	shell "github.com/ipfs/go-ipfs-api"
@@ -37,6 +39,7 @@ const (
 type DriverParameters struct {
 	RootDirectory string
 	MaxThreads    uint64
+	Direction     string
 }
 
 func init() {
@@ -53,6 +56,7 @@ func (factory *filesystemDriverFactory) Create(parameters map[string]interface{}
 
 type driver struct {
 	rootDirectory string
+	direction string
 	ipfsRoot string
 }
 
@@ -85,11 +89,16 @@ func fromParametersImpl(parameters map[string]interface{}) (*DriverParameters, e
 		err           error
 		maxThreads    = defaultMaxThreads
 		rootDirectory = defaultRootDirectory
+		direction = "none"
 	)
 
 	if parameters != nil {
 		if rootDir, ok := parameters["rootdirectory"]; ok {
 			rootDirectory = fmt.Sprint(rootDir)
+		}
+
+		if dir, ok := parameters["direction"]; ok {
+			direction = fmt.Sprint(dir)
 		}
 
 		maxThreads, err = base.GetLimitFromParameter(parameters["maxthreads"], minThreads, defaultMaxThreads)
@@ -101,13 +110,18 @@ func fromParametersImpl(parameters map[string]interface{}) (*DriverParameters, e
 	params := &DriverParameters{
 		RootDirectory: rootDirectory,
 		MaxThreads:    maxThreads,
+		Direction: direction,
 	}
 	return params, nil
 }
 
 // New constructs a new Driver with a given rootDirectory
 func New(params DriverParameters) *Driver {
-	fsDriver := &driver{rootDirectory: params.RootDirectory}
+
+	fsDriver := &driver {
+		rootDirectory: params.RootDirectory,
+		direction: params.Direction,
+	}
 
 	fsDriver.ipfsRoot = "/registry";
 
@@ -144,53 +158,44 @@ func (d *driver) GetContent(ctx context.Context, subPath string) ([]byte, error)
 		return nil, err
 	}
 
-	// If this doesn't exist, we move into IPFS mode
-	_, err = filesStat(sh, localPath);
+	switch d.direction {
+		case "in":
+			ipfsPath, subErr := getIpfsAddressFromDomain(domain);
 
-	if err != nil {
-		switch err := err.(type) {
+			if subErr != nil {
+				return nil, subErr;
+			}
 
-			case storagedriver.PathNotFoundError:
-				
-				ipfsPath, subErr := getIpfsAddressFromDomain(domain);
+			pp := path.Join(ipfsPath, subPath)
+			getLogger(ctx).Infof("Requsting: '%s'", pp);
+			p, subErr := ipfsCat(sh, pp);
 
-				if subErr != nil {
-					return nil, subErr;
+			if subErr != nil {
+
+				switch subErr.(type) {
+
+					case storagedriver.PathNotFoundError:
+						return nil, storagedriver.PathNotFoundError{
+							DriverName: "ipfs",
+							Path: localPath,
+						}
+					default:
+						return nil, err;
 				}
+			}
 
-				pp := path.Join("/ipfs", ipfsPath, subPath)
-				getLogger(ctx).Infof("Requsting: '%s'", pp);
-				p, subErr := ipfsCat(sh, pp);
+			return p, nil;
 
-				if subErr != nil {
+		case "out":
+			p, err := filesRead(sh, localPath);
 
-					switch subErr.(type) {
-
-						case storagedriver.PathNotFoundError:
-							return nil, storagedriver.PathNotFoundError{
-								DriverName: "ipfs",
-								Path: localPath,
-							}
-						default:
-							return nil, err;
-					}
-				}
-
-				return p, nil;
-
-			default:
+			if err != nil {
 				return nil, err
-		}
+			}
 
-	} else {
-
-		p, err := filesRead(sh, localPath);
-
-		if err != nil {
-			return nil, err
-		}
-
-		return p, err
+			return p, err
+		default:
+			return nil, nil;
 	}
 }
 
@@ -234,45 +239,42 @@ func (d *driver) Reader(ctx context.Context, subPath string, offset int64) (io.R
 
 	localPath := path.Join("/", domain, subPath);
 
-	local, err := doesFileExistLocally(sh, localPath)
+	switch d.direction {
+		case "in":
+			ipfsPath, err := getIpfsAddressFromDomain(domain);
 
-	if err != nil {
-		return nil, err;
+			if err != nil {
+				return nil, err;
+			}
+
+			pp := path.Join(ipfsPath, subPath)
+
+			getLogger(ctx).Infof("Requsting: '%s'", pp);
+
+			p, err := ipfsCatWithOffset(sh, pp, offset)
+			
+			if err != nil {
+				return nil, err
+			}
+
+			closer := ioutil.NopCloser(bytes.NewReader(p));
+			
+			return closer, nil;
+
+		case "out":
+			p, err := filesReadWithOffset(sh, localPath, offset);
+
+			if err != nil {
+				return nil, err
+			}
+
+			closer := ioutil.NopCloser(bytes.NewReader(p));
+
+			return closer, nil
+
+		default:
+			return nil, nil
 	}
-
-	if local == true {
-
-		p, err := filesReadWithOffset(sh, localPath, offset);
-
-		if err != nil {
-			return nil, err
-		}
-
-		closer := ioutil.NopCloser(bytes.NewReader(p));
-
-		return closer, nil;
-		
-	} 
-
-	ipfsPath, err := getIpfsAddressFromDomain(domain);
-
-	if err != nil {
-		return nil, err;
-	}
-
-	pp := path.Join("/ipfs", ipfsPath, subPath)
-
-	getLogger(ctx).Infof("Requsting: '%s'", pp);
-
-	p, err := ipfsCatWithOffset(sh, pp, offset)
-	
-	if err != nil {
-		return nil, err
-	}
-
-	closer := ioutil.NopCloser(bytes.NewReader(p));
-	
-	return closer, nil;
 }
 
 func (d *driver) Writer(ctx context.Context, subPath string, append bool) (storagedriver.FileWriter, error) {
@@ -293,8 +295,6 @@ func (d *driver) Writer(ctx context.Context, subPath string, append bool) (stora
 
 	return newIpfsWriter(sh, d.ipfsRoot, localPath, append), nil
 }
-
-
 
 // Stat retrieves the FileInfo for the given path, including the current size
 // in bytes and the creation time.
@@ -328,49 +328,40 @@ func (d *driver) Stat(ctx context.Context, subPath string) (storagedriver.FileIn
 
 	var file shell.LsLink
 
-	local, err := doesFileExistLocally(sh, localPath)
+	switch d.direction {
+		case "in":
+			ipfsPath, err := getIpfsAddressFromDomain(domain);
 
-	if err != nil {
-		return nil, err;
-	}
-
-	if local == true {
-
-		file, err = filesStat(sh, localPath);
-
-		if err != nil {
-			return nil, err
-		}
-		
-	} else {
-
-		ipfsPath, err := getIpfsAddressFromDomain(domain);
-
-		if err != nil {
-			return nil, err;
-		}
-
-		s, err := sh.ObjectStat(path.Join("/ipfs", ipfsPath, subPath));
-		
-		if err != nil {
-			e := err.Error()
-			
-			if strings.HasPrefix(e, "object/stat: no link named") {
-				return nil, storagedriver.PathNotFoundError {
-					Path: localPath,
-				}
+			if err != nil {
+				return nil, err;
 			}
 
-			return nil, err;
-		}
+			s, err := sh.ObjectStat(path.Join(ipfsPath, subPath));
+			
+			if err != nil {
+				e := err.Error()
+				
+				if strings.HasPrefix(e, "object/stat: no link named") {
+					return nil, storagedriver.PathNotFoundError {
+						Path: localPath,
+					}
+				}
 
-		file = shell.LsLink{
-			Hash: s.Hash,
-		}		
-	}
+				return nil, err;
+			}
 
-	if err != nil {
-		return nil, err
+			file = shell.LsLink{
+				Hash: s.Hash,
+			}
+			
+		case "out":
+			file, err = filesStat(sh, localPath);
+
+			if err != nil {
+				return nil, err
+			}
+		default:
+			return nil, nil;
 	}
 
 	isDir := false;
@@ -435,7 +426,6 @@ func (d *driver) Move(ctx context.Context, sourcePath string, destPath string) e
 
 	getLogger(ctx).Infof("Moving %s to %s", localSourcePath, localDestPath);
 
-	
 	sh, err := getShell()
 
 	if err != nil {
@@ -590,13 +580,53 @@ func getLogger(ctx context.Context) dcontext.Logger {
 	});
 }
 
+
 func getIpfsAddressFromDomain(domain string) (string, error) {
 
-	if domain == "bonner.is" {
-		return "QmcAJDL3XrZtQ4VX6Gm8bULmXZgezBDit8inhi62sSUnTE", nil;
+	txtrecords, err := net.LookupTXT(domain)
+
+	if err != nil {
+		return "", err
 	}
 
-	return "", nil
+	hasHash := false;
+
+	for _, txt := range txtrecords {
+
+		if strings.HasPrefix(txt, "ipfsnode") {
+
+			var out []string
+
+			txt = strings.ReplaceAll(txt, "ipfsnode=", "")
+
+			json.Unmarshal([]byte(txt), &out);
+
+			sh, err := getShell();
+
+			if err != nil {
+				return "", nil
+			}
+
+			for _, address := range out {
+
+				err = swarmConnect(sh, address)
+
+				if err != nil {
+					return "", err
+				}
+			}
+		}
+
+		if strings.HasPrefix(txt, "dnslink") {
+			hasHash = true
+		}
+	}
+
+	if hasHash == false {
+		return "", nil
+	}
+
+	return "/ipns/" + domain, nil;
 }
 
 func getDomain(ctx context.Context) (string, error) {
@@ -684,6 +714,7 @@ func filesRm(sh *shell.Shell, path string) (error) {
 
 	resp, err := sh.Request("files/rm", path).Option("recursive", true).Send(context.Background());
 
+	
 	if err != nil {
 		return err
 	}
@@ -775,4 +806,17 @@ func filesLs(sh *shell.Shell, path string) ([]shell.LsLink, error) {
 	}
 
 	return out.Entries, nil
+}
+
+func swarmConnect(sh *shell.Shell, address string) (error) {
+
+	var out struct { Strings []string }
+
+	err := sh.Request("swarm/connect", address).Exec(context.Background(), &out)
+
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
