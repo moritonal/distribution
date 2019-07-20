@@ -45,7 +45,6 @@ require (
 	github.com/spf13/cobra v0.0.0-20150605180824-312092086bed
 	github.com/spf13/pflag v0.0.0-20150601220040-564482062245 // indirect
 	github.com/stretchr/testify v1.3.0 // indirect
-	github.com/whyrusleeping/tar-utils v0.0.0-20180509141711-8c6c8ba81d5c
 	github.com/yvasiyarov/go-metrics v0.0.0-20140926110328-57bccd1ccd43 // indirect
 	github.com/yvasiyarov/gorelic v0.0.0-20141212073537-a9bba5b9ab50
 	github.com/yvasiyarov/newrelic_platform_go v0.0.0-20140908184405-b21fdbd4370f // indirect
