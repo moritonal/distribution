@@ -597,7 +597,7 @@ func getIpfsAddressFromDomain(domain string) (string, error) {
 
 			var out []string
 
-			txt = strings.ReplaceAll(txt, "ipfsnode=", "")
+			txt = strings.Replace(txt, "ipfsnode=", "", 1)
 
 			json.Unmarshal([]byte(txt), &out);
 
