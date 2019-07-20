@@ -20,11 +20,12 @@ require (
 	github.com/docker/go-metrics v0.0.0-20180209012529-399ea8c73916
 	github.com/docker/libtrust v0.0.0-20150114040149-fa567046d9b1
 	github.com/garyburd/redigo v0.0.0-20150301180006-535138d7bcd7
-	github.com/golang/protobuf v0.0.0-20160321223353-8d92cf5fc15a // indirect
 	github.com/gorilla/context v1.1.1 // indirect
 	github.com/gorilla/handlers v0.0.0-20150720190736-60c7bfde3e33
 	github.com/gorilla/mux v0.0.0-20170228224354-599cba5e7b61
 	github.com/inconshreveable/mousetrap v1.0.0 // indirect
+	github.com/ipfs/go-ipfs-api v0.0.1
+	github.com/ipfs/go-ipfs-files v0.0.3
 	github.com/jmespath/go-jmespath v0.0.0-20160803190731-bd40a432e4c7 // indirect
 	github.com/kr/pretty v0.1.0 // indirect
 	github.com/marstr/guid v1.1.0 // indirect
@@ -44,6 +45,7 @@ require (
 	github.com/spf13/cobra v0.0.0-20150605180824-312092086bed
 	github.com/spf13/pflag v0.0.0-20150601220040-564482062245 // indirect
 	github.com/stretchr/testify v1.3.0 // indirect
+	github.com/whyrusleeping/tar-utils v0.0.0-20180509141711-8c6c8ba81d5c
 	github.com/yvasiyarov/go-metrics v0.0.0-20140926110328-57bccd1ccd43 // indirect
 	github.com/yvasiyarov/gorelic v0.0.0-20141212073537-a9bba5b9ab50
 	github.com/yvasiyarov/newrelic_platform_go v0.0.0-20140908184405-b21fdbd4370f // indirect
