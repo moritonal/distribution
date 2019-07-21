@@ -10,6 +10,7 @@ import (
 	"strings"
 	"net"
 	"encoding/json"
+	"log"
 
 	files "github.com/ipfs/go-ipfs-files"
 	shell "github.com/ipfs/go-ipfs-api"
@@ -40,7 +41,7 @@ type DriverParameters struct {
 	RootDirectory string
 	MaxThreads    uint64
 	Direction     string
-	Ipfs string
+	Address string
 }
 
 func init() {
@@ -57,7 +58,7 @@ func (factory *filesystemDriverFactory) Create(parameters map[string]interface{}
 
 type driver struct {
 	rootDirectory string
-	ipfs string
+	address string
 	direction string
 }
 
@@ -91,7 +92,7 @@ func fromParametersImpl(parameters map[string]interface{}) (*DriverParameters, e
 		maxThreads    = defaultMaxThreads
 		rootDirectory = defaultRootDirectory
 		direction = "none"
-		ipfs = ""
+		address = ""
 	)
 
 	if parameters != nil {
@@ -103,8 +104,8 @@ func fromParametersImpl(parameters map[string]interface{}) (*DriverParameters, e
 			direction = fmt.Sprint(dir)
 		}
 
-		if ipfsAddr, ok := parameters["ipfs"]; ok {
-			ipfs = fmt.Sprint(ipfsAddr)
+		if addr, ok := parameters["address"]; ok {
+			address = fmt.Sprint(addr)
 		}
 
 		maxThreads, err = base.GetLimitFromParameter(parameters["maxthreads"], minThreads, defaultMaxThreads)
@@ -117,7 +118,7 @@ func fromParametersImpl(parameters map[string]interface{}) (*DriverParameters, e
 		RootDirectory: rootDirectory,
 		MaxThreads:    maxThreads,
 		Direction: direction,
-		Ipfs: ipfs,
+		Address: address,
 	}
 	return params, nil
 }
@@ -128,8 +129,10 @@ func New(params DriverParameters) *Driver {
 	fsDriver := &driver {
 		rootDirectory: params.RootDirectory,
 		direction: params.Direction,
-		ipfs: params.Ipfs,
+		address: params.Address,
 	}
+
+	log.Printf("Using IPFS Address: '%s'", fsDriver.address);
 
 	return &Driver{
 		baseEmbed: baseEmbed{
@@ -658,7 +661,7 @@ func getDomain(ctx context.Context) (string, error) {
 
 func (d* driver) getShell() (*shell.Shell, error) {
 
-	sh := shell.NewShell(d.ipfs);
+	sh := shell.NewShell(d.address);
 
 	return sh, nil;
 }
