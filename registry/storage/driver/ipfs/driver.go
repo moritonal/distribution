@@ -40,6 +40,7 @@ type DriverParameters struct {
 	RootDirectory string
 	MaxThreads    uint64
 	Direction     string
+	IpfsAddress string
 }
 
 func init() {
@@ -56,6 +57,7 @@ func (factory *filesystemDriverFactory) Create(parameters map[string]interface{}
 
 type driver struct {
 	rootDirectory string
+	ipfsAddress string
 	direction string
 	ipfsRoot string
 }
@@ -90,6 +92,7 @@ func fromParametersImpl(parameters map[string]interface{}) (*DriverParameters, e
 		maxThreads    = defaultMaxThreads
 		rootDirectory = defaultRootDirectory
 		direction = "none"
+		ipfsAddress = ""
 	)
 
 	if parameters != nil {
@@ -99,6 +102,10 @@ func fromParametersImpl(parameters map[string]interface{}) (*DriverParameters, e
 
 		if dir, ok := parameters["direction"]; ok {
 			direction = fmt.Sprint(dir)
+		}
+
+		if ipfsAddr, ok := parameters["ipfsAddress"]; ok {
+			ipfsAddress = fmt.Sprint(ipfsAddr)
 		}
 
 		maxThreads, err = base.GetLimitFromParameter(parameters["maxthreads"], minThreads, defaultMaxThreads)
@@ -111,6 +118,7 @@ func fromParametersImpl(parameters map[string]interface{}) (*DriverParameters, e
 		RootDirectory: rootDirectory,
 		MaxThreads:    maxThreads,
 		Direction: direction,
+		IpfsAddress: ipfsAddress,
 	}
 	return params, nil
 }
@@ -121,6 +129,7 @@ func New(params DriverParameters) *Driver {
 	fsDriver := &driver {
 		rootDirectory: params.RootDirectory,
 		direction: params.Direction,
+		ipfsAddress: params.IpfsAddress,
 	}
 
 	fsDriver.ipfsRoot = "/registry";
@@ -152,7 +161,7 @@ func (d *driver) GetContent(ctx context.Context, subPath string) ([]byte, error)
 
 	localPath := path.Join("/", domain, subPath);
 
-	sh, err := getShell();
+	sh, err := d.getShell();
 
 	if err != nil {
 		return nil, err
@@ -160,7 +169,7 @@ func (d *driver) GetContent(ctx context.Context, subPath string) ([]byte, error)
 
 	switch d.direction {
 		case "in":
-			ipfsPath, subErr := getIpfsAddressFromDomain(domain);
+			ipfsPath, subErr := d.getIpfsAddressFromDomain(domain);
 
 			if subErr != nil {
 				return nil, subErr;
@@ -212,7 +221,7 @@ func (d *driver) PutContent(ctx context.Context, subPath string, contents []byte
 
 	localPath := path.Join("/", domain, subPath);
 
-	sh, err := getShell();
+	sh, err := d.getShell();
 	
 	if err != nil {
 		return err
@@ -229,7 +238,7 @@ func (d *driver) Reader(ctx context.Context, subPath string, offset int64) (io.R
 	
 	getLogger(ctx).Infof("Creating Reader: '%s'", subPath);
 	
-	sh, err := getShell()
+	sh, err := d.getShell()
 
 	domain, err := getDomain(ctx)
 
@@ -241,7 +250,7 @@ func (d *driver) Reader(ctx context.Context, subPath string, offset int64) (io.R
 
 	switch d.direction {
 		case "in":
-			ipfsPath, err := getIpfsAddressFromDomain(domain);
+			ipfsPath, err := d.getIpfsAddressFromDomain(domain);
 
 			if err != nil {
 				return nil, err;
@@ -287,7 +296,7 @@ func (d *driver) Writer(ctx context.Context, subPath string, append bool) (stora
 
 	localPath := path.Join("/", domain, subPath);
 
-	sh, err := getShell();
+	sh, err := d.getShell();
 
 	if err != nil {
 		return nil, err;
@@ -320,7 +329,7 @@ func (d *driver) Stat(ctx context.Context, subPath string) (storagedriver.FileIn
 
 	localPath := path.Join("/", domain, subPath);
 
-	sh, _ := getShell();
+	sh, _ := d.getShell();
 
 	if err != nil {
 		return nil, err
@@ -330,7 +339,7 @@ func (d *driver) Stat(ctx context.Context, subPath string) (storagedriver.FileIn
 
 	switch d.direction {
 		case "in":
-			ipfsPath, err := getIpfsAddressFromDomain(domain);
+			ipfsPath, err := d.getIpfsAddressFromDomain(domain);
 
 			if err != nil {
 				return nil, err;
@@ -393,7 +402,7 @@ func (d *driver) List(ctx context.Context, subPath string) ([]string, error) {
 
 	localPath := path.Join("/", domain, subPath);
 
-	sh, err := getShell();
+	sh, err := d.getShell();
 
 	if err != nil {
 		return nil, err;
@@ -426,7 +435,7 @@ func (d *driver) Move(ctx context.Context, sourcePath string, destPath string) e
 
 	getLogger(ctx).Infof("Moving %s to %s", localSourcePath, localDestPath);
 
-	sh, err := getShell()
+	sh, err := d.getShell()
 
 	if err != nil {
 		return err;
@@ -448,7 +457,7 @@ func (d *driver) Delete(ctx context.Context, subPath string) error {
 
 	localPath := path.Join("/", domain, subPath);
 
-	sh, err := getShell()
+	sh, err := d.getShell()
 
 	if err != nil {
 		return err;
@@ -581,7 +590,7 @@ func getLogger(ctx context.Context) dcontext.Logger {
 }
 
 
-func getIpfsAddressFromDomain(domain string) (string, error) {
+func (d* driver) getIpfsAddressFromDomain(domain string) (string, error) {
 
 	txtrecords, err := net.LookupTXT(domain)
 
@@ -601,7 +610,7 @@ func getIpfsAddressFromDomain(domain string) (string, error) {
 
 			json.Unmarshal([]byte(txt), &out);
 
-			sh, err := getShell();
+			sh, err := d.getShell();
 
 			if err != nil {
 				return "", nil
@@ -650,9 +659,9 @@ func getDomain(ctx context.Context) (string, error) {
 	return domain, nil;
 }
 
-func getShell() (*shell.Shell, error) {
+func (d* driver) getShell() (*shell.Shell, error) {
 
-	sh := shell.NewShell("172.17.0.3:5001");
+	sh := shell.NewShell(d.ipfsAddress);
 
 	return sh, nil;
 }
