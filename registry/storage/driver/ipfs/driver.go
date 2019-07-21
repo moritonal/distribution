@@ -40,7 +40,7 @@ type DriverParameters struct {
 	RootDirectory string
 	MaxThreads    uint64
 	Direction     string
-	IpfsAddress string
+	Ipfs string
 }
 
 func init() {
@@ -57,9 +57,8 @@ func (factory *filesystemDriverFactory) Create(parameters map[string]interface{}
 
 type driver struct {
 	rootDirectory string
-	ipfsAddress string
+	ipfs string
 	direction string
-	ipfsRoot string
 }
 
 type baseEmbed struct {
@@ -92,7 +91,7 @@ func fromParametersImpl(parameters map[string]interface{}) (*DriverParameters, e
 		maxThreads    = defaultMaxThreads
 		rootDirectory = defaultRootDirectory
 		direction = "none"
-		ipfsAddress = ""
+		ipfs = ""
 	)
 
 	if parameters != nil {
@@ -104,8 +103,8 @@ func fromParametersImpl(parameters map[string]interface{}) (*DriverParameters, e
 			direction = fmt.Sprint(dir)
 		}
 
-		if ipfsAddr, ok := parameters["ipfsAddress"]; ok {
-			ipfsAddress = fmt.Sprint(ipfsAddr)
+		if ipfsAddr, ok := parameters["ipfs"]; ok {
+			ipfs = fmt.Sprint(ipfsAddr)
 		}
 
 		maxThreads, err = base.GetLimitFromParameter(parameters["maxthreads"], minThreads, defaultMaxThreads)
@@ -118,7 +117,7 @@ func fromParametersImpl(parameters map[string]interface{}) (*DriverParameters, e
 		RootDirectory: rootDirectory,
 		MaxThreads:    maxThreads,
 		Direction: direction,
-		IpfsAddress: ipfsAddress,
+		Ipfs: ipfs,
 	}
 	return params, nil
 }
@@ -129,10 +128,8 @@ func New(params DriverParameters) *Driver {
 	fsDriver := &driver {
 		rootDirectory: params.RootDirectory,
 		direction: params.Direction,
-		ipfsAddress: params.IpfsAddress,
+		ipfs: params.Ipfs,
 	}
-
-	fsDriver.ipfsRoot = "/registry";
 
 	return &Driver{
 		baseEmbed: baseEmbed{
@@ -176,7 +173,7 @@ func (d *driver) GetContent(ctx context.Context, subPath string) ([]byte, error)
 			}
 
 			pp := path.Join(ipfsPath, subPath)
-			getLogger(ctx).Infof("Requsting: '%s'", pp);
+			getLogger(ctx).Infof("Requesting: '%s'", pp);
 			p, subErr := ipfsCat(sh, pp);
 
 			if subErr != nil {
@@ -258,7 +255,7 @@ func (d *driver) Reader(ctx context.Context, subPath string, offset int64) (io.R
 
 			pp := path.Join(ipfsPath, subPath)
 
-			getLogger(ctx).Infof("Requsting: '%s'", pp);
+			getLogger(ctx).Infof("Requesting: '%s'", pp);
 
 			p, err := ipfsCatWithOffset(sh, pp, offset)
 			
@@ -302,7 +299,7 @@ func (d *driver) Writer(ctx context.Context, subPath string, append bool) (stora
 		return nil, err;
 	}
 
-	return newIpfsWriter(sh, d.ipfsRoot, localPath, append), nil
+	return newIpfsWriter(sh, localPath, append), nil
 }
 
 // Stat retrieves the FileInfo for the given path, including the current size
@@ -661,7 +658,7 @@ func getDomain(ctx context.Context) (string, error) {
 
 func (d* driver) getShell() (*shell.Shell, error) {
 
-	sh := shell.NewShell(d.ipfsAddress);
+	sh := shell.NewShell(d.ipfs);
 
 	return sh, nil;
 }

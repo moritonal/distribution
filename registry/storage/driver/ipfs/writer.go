@@ -11,7 +11,6 @@ import (
 type ipfsWriter struct {
 	shell      *shell.Shell
 	append    bool
-	rootPath string
 	subPath		string
 	// bw        *bufio.Writer
 	closed    bool
@@ -19,13 +18,12 @@ type ipfsWriter struct {
 	cancelled bool
 }
 
-func newIpfsWriter(shell *shell.Shell, rootPath string, subPath string, append bool) *ipfsWriter {
+func newIpfsWriter(shell *shell.Shell, subPath string, append bool) *ipfsWriter {
 
 	log.Printf("Opened Writer for " + subPath);
 
 	return &ipfsWriter{
 		shell: shell,
-		rootPath: rootPath,
 		subPath: subPath,
 		append: append,
 	}
