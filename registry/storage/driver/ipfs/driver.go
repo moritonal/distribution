@@ -1,20 +1,20 @@
 package ipfs
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
-	"path"
-	"bytes"
 	"io/ioutil"
-	"strings"
-	"net"
-	"encoding/json"
 	"log"
+	"net"
+	"path"
+	"strings"
 
-	files "github.com/ipfs/go-ipfs-files"
-	shell "github.com/ipfs/go-ipfs-api"
 	storagedriver "github.com/docker/distribution/registry/storage/driver"
+	shell "github.com/ipfs/go-ipfs-api"
+	files "github.com/ipfs/go-ipfs-files"
 
 	dcontext "github.com/docker/distribution/context"
 
@@ -41,7 +41,7 @@ type DriverParameters struct {
 	RootDirectory string
 	MaxThreads    uint64
 	Direction     string
-	Address string
+	Address       string
 }
 
 func init() {
@@ -58,8 +58,8 @@ func (factory *filesystemDriverFactory) Create(parameters map[string]interface{}
 
 type driver struct {
 	rootDirectory string
-	address string
-	direction string
+	address       string
+	direction     string
 }
 
 type baseEmbed struct {
@@ -91,8 +91,8 @@ func fromParametersImpl(parameters map[string]interface{}) (*DriverParameters, e
 		err           error
 		maxThreads    = defaultMaxThreads
 		rootDirectory = defaultRootDirectory
-		direction = "none"
-		address = ""
+		direction     = "none"
+		address       = ""
 	)
 
 	if parameters != nil {
@@ -117,8 +117,8 @@ func fromParametersImpl(parameters map[string]interface{}) (*DriverParameters, e
 	params := &DriverParameters{
 		RootDirectory: rootDirectory,
 		MaxThreads:    maxThreads,
-		Direction: direction,
-		Address: address,
+		Direction:     direction,
+		Address:       address,
 	}
 	return params, nil
 }
@@ -126,13 +126,13 @@ func fromParametersImpl(parameters map[string]interface{}) (*DriverParameters, e
 // New constructs a new Driver with a given rootDirectory
 func New(params DriverParameters) *Driver {
 
-	fsDriver := &driver {
+	fsDriver := &driver{
 		rootDirectory: params.RootDirectory,
-		direction: params.Direction,
-		address: params.Address,
+		direction:     params.Direction,
+		address:       params.Address,
 	}
 
-	log.Printf("Using IPFS Address: '%s'", fsDriver.address);
+	log.Printf("Using IPFS Address: '%s'", fsDriver.address)
 
 	return &Driver{
 		baseEmbed: baseEmbed{
@@ -151,7 +151,7 @@ func (d *driver) Name() string {
 // GetContent retrieves the content stored at "path" as a []byte.
 func (d *driver) GetContent(ctx context.Context, subPath string) ([]byte, error) {
 
-	getLogger(ctx).Infof("GetContent: '%s'", subPath);
+	getLogger(ctx).Infof("GetContent: '%s'", subPath)
 
 	domain, err := getDomain(ctx)
 
@@ -159,59 +159,61 @@ func (d *driver) GetContent(ctx context.Context, subPath string) ([]byte, error)
 		return nil, err
 	}
 
-	localPath := path.Join("/", domain, subPath);
+	localPath := path.Join("/", domain, subPath)
 
-	sh, err := d.getShell();
+	sh, err := d.getShell()
 
 	if err != nil {
 		return nil, err
 	}
 
-	switch d.direction {
-		case "in":
-			ipfsPath, subErr := d.getIpfsAddressFromDomain(domain);
+	tmp := d.direction
 
-			if subErr != nil {
-				return nil, subErr;
-			}
+	switch tmp {
+	case "in":
+		ipfsPath, subErr := d.getIpfsAddressFromDomain(domain)
 
-			pp := path.Join(ipfsPath, subPath)
-			getLogger(ctx).Infof("Requesting: '%s'", pp);
-			p, subErr := ipfsCat(sh, pp);
+		if subErr != nil {
+			return nil, subErr
+		}
 
-			if subErr != nil {
+		pp := path.Join(ipfsPath, subPath)
+		getLogger(ctx).Infof("Requesting: '%s'", pp)
+		p, subErr := ipfsCat(sh, pp)
 
-				switch subErr.(type) {
+		if subErr != nil {
 
-					case storagedriver.PathNotFoundError:
-						return nil, storagedriver.PathNotFoundError{
-							DriverName: "ipfs",
-							Path: localPath,
-						}
-					default:
-						return nil, err;
+			switch subErr.(type) {
+
+			case storagedriver.PathNotFoundError:
+				return nil, storagedriver.PathNotFoundError{
+					DriverName: "ipfs",
+					Path:       localPath,
 				}
-			}
-
-			return p, nil;
-
-		case "out":
-			p, err := filesRead(sh, localPath);
-
-			if err != nil {
+			default:
 				return nil, err
 			}
+		}
 
-			return p, err
-		default:
-			return nil, nil;
+		return p, nil
+
+	case "out":
+		p, err := filesRead(sh, localPath)
+
+		if err != nil {
+			return nil, err
+		}
+
+		return p, err
+	default:
+		return nil, nil
 	}
 }
 
 // PutContent stores the []byte content at a location designated by "path".
 func (d *driver) PutContent(ctx context.Context, subPath string, contents []byte) error {
-	
-	getLogger(ctx).Infof("Putting %s", subPath);
+
+	getLogger(ctx).Infof("Putting %s", subPath)
 
 	domain, err := getDomain(ctx)
 
@@ -219,25 +221,25 @@ func (d *driver) PutContent(ctx context.Context, subPath string, contents []byte
 		return err
 	}
 
-	localPath := path.Join("/", domain, subPath);
+	localPath := path.Join("/", domain, subPath)
 
-	sh, err := d.getShell();
-	
+	sh, err := d.getShell()
+
 	if err != nil {
 		return err
 	}
 
 	_, err = filesWrite(sh, localPath, contents, false)
 
-	return err;
+	return err
 }
 
 // Reader retrieves an io.ReadCloser for the content stored at "path" with a
 // given byte offset.
 func (d *driver) Reader(ctx context.Context, subPath string, offset int64) (io.ReadCloser, error) {
-	
-	getLogger(ctx).Infof("Creating Reader: '%s'", subPath);
-	
+
+	getLogger(ctx).Infof("Creating Reader: '%s'", subPath)
+
 	sh, err := d.getShell()
 
 	domain, err := getDomain(ctx)
@@ -246,60 +248,62 @@ func (d *driver) Reader(ctx context.Context, subPath string, offset int64) (io.R
 		return nil, err
 	}
 
-	localPath := path.Join("/", domain, subPath);
+	localPath := path.Join("/", domain, subPath)
 
-	switch d.direction {
-		case "in":
-			ipfsPath, err := d.getIpfsAddressFromDomain(domain);
+	tmp := d.direction
 
-			if err != nil {
-				return nil, err;
-			}
+	switch tmp {
+	case "in":
+		ipfsPath, err := d.getIpfsAddressFromDomain(domain)
 
-			pp := path.Join(ipfsPath, subPath)
+		if err != nil {
+			return nil, err
+		}
 
-			getLogger(ctx).Infof("Requesting: '%s'", pp);
+		pp := path.Join(ipfsPath, subPath)
 
-			p, err := ipfsCatWithOffset(sh, pp, offset)
-			
-			if err != nil {
-				return nil, err
-			}
+		getLogger(ctx).Infof("Requesting: '%s'", pp)
 
-			closer := ioutil.NopCloser(bytes.NewReader(p));
-			
-			return closer, nil;
+		p, err := ipfsCatWithOffset(sh, pp, offset)
 
-		case "out":
-			p, err := filesReadWithOffset(sh, localPath, offset);
+		if err != nil {
+			return nil, err
+		}
 
-			if err != nil {
-				return nil, err
-			}
+		closer := ioutil.NopCloser(bytes.NewReader(p))
 
-			closer := ioutil.NopCloser(bytes.NewReader(p));
+		return closer, nil
 
-			return closer, nil
+	case "out":
+		p, err := filesReadWithOffset(sh, localPath, offset)
 
-		default:
-			return nil, nil
+		if err != nil {
+			return nil, err
+		}
+
+		closer := ioutil.NopCloser(bytes.NewReader(p))
+
+		return closer, nil
+
+	default:
+		return nil, nil
 	}
 }
 
 func (d *driver) Writer(ctx context.Context, subPath string, append bool) (storagedriver.FileWriter, error) {
-	
+
 	domain, err := getDomain(ctx)
 
 	if err != nil {
 		return nil, err
 	}
 
-	localPath := path.Join("/", domain, subPath);
+	localPath := path.Join("/", domain, subPath)
 
-	sh, err := d.getShell();
+	sh, err := d.getShell()
 
 	if err != nil {
-		return nil, err;
+		return nil, err
 	}
 
 	return newIpfsWriter(sh, localPath, append), nil
@@ -308,14 +312,14 @@ func (d *driver) Writer(ctx context.Context, subPath string, append bool) (stora
 // Stat retrieves the FileInfo for the given path, including the current size
 // in bytes and the creation time.
 func (d *driver) Stat(ctx context.Context, subPath string) (storagedriver.FileInfo, error) {
-	
-	getLogger(ctx).Infof("Stating: '%s'", subPath);
+
+	getLogger(ctx).Infof("Stating: '%s'", subPath)
 
 	if subPath == "/" {
-		return storagedriver.FileInfoInternal {
+		return storagedriver.FileInfoInternal{
 			FileInfoFields: storagedriver.FileInfoFields{
-				Path: subPath,
-				Size: 0,
+				Path:  subPath,
+				Size:  0,
 				IsDir: true,
 			},
 		}, nil
@@ -327,9 +331,9 @@ func (d *driver) Stat(ctx context.Context, subPath string) (storagedriver.FileIn
 		return nil, err
 	}
 
-	localPath := path.Join("/", domain, subPath);
+	localPath := path.Join("/", domain, subPath)
 
-	sh, _ := d.getShell();
+	sh, _ := d.getShell()
 
 	if err != nil {
 		return nil, err
@@ -337,52 +341,79 @@ func (d *driver) Stat(ctx context.Context, subPath string) (storagedriver.FileIn
 
 	var file shell.LsLink
 
-	switch d.direction {
-		case "in":
-			ipfsPath, err := d.getIpfsAddressFromDomain(domain);
+	tmp := d.direction
 
-			if err != nil {
-				return nil, err;
-			}
+	switch tmp {
+	case "in":
+		ipfsPath, err := d.getIpfsAddressFromDomain(domain)
 
-			s, err := sh.ObjectStat(path.Join(ipfsPath, subPath));
-			
-			if err != nil {
-				e := err.Error()
-				
-				if strings.HasPrefix(e, "object/stat: no link named") {
-					return nil, storagedriver.PathNotFoundError {
-						Path: localPath,
-					}
-				}
+		if err != nil {
+			return nil, err
+		}
 
-				return nil, err;
-			}
+		pp := path.Join(ipfsPath, subPath)
 
+		getLogger(ctx).Infof("Requesting: '%s'", pp)
+
+		stats, err := sh.ObjectStat(pp)
+
+		if err != nil {
+			return nil, err
+		}
+
+		// TODO: This could break...
+		if stats.DataSize == 2 {
+
+			// It's a directory
 			file = shell.LsLink{
-				Hash: s.Hash,
+				Hash: pp,
+				Name: "",
+				Size: 1,
+				Type: 1,
 			}
-			
-		case "out":
-			file, err = filesStat(sh, localPath);
+
+		} else {
+
+			links, err := sh.List(pp)
 
 			if err != nil {
 				return nil, err
 			}
-		default:
-			return nil, nil;
+
+			var sum uint64
+
+			for i := range links {
+				sum += links[i].Size
+			}
+
+			file = shell.LsLink{
+				Hash: pp,
+				Name: "",
+				Size: sum,
+				Type: 2,
+			}
+		}
+
+	case "out":
+		file, err = filesStat(sh, localPath)
+
+		if err != nil {
+			return nil, err
+		}
+	default:
+		return nil, nil
 	}
 
-	isDir := false;
+	isDir := false
 
-	if (file.Type == 1) {
-		isDir = true;
+	if file.Type == 1 {
+		isDir = true
 	}
 
-	return storagedriver.FileInfoInternal {
+	return storagedriver.FileInfoInternal{
 		FileInfoFields: storagedriver.FileInfoFields{
-			Path: subPath,
-			Size: int64(file.Size),
+			Path:  subPath,
+			Size:  int64(file.Size),
 			IsDir: isDir,
 		},
 	}, nil
@@ -391,8 +422,8 @@ func (d *driver) Stat(ctx context.Context, subPath string) (storagedriver.FileIn
 // List returns a list of the objects that are direct descendants of the given
 // path.
 func (d *driver) List(ctx context.Context, subPath string) ([]string, error) {
-	
-	getLogger(ctx).Infof("Listing %s", subPath);
+
+	getLogger(ctx).Infof("Listing %s", subPath)
 
 	domain, err := getDomain(ctx)
 
@@ -400,15 +431,15 @@ func (d *driver) List(ctx context.Context, subPath string) ([]string, error) {
 		return nil, err
 	}
 
-	localPath := path.Join("/", domain, subPath);
+	localPath := path.Join("/", domain, subPath)
 
-	sh, err := d.getShell();
+	sh, err := d.getShell()
 
 	if err != nil {
-		return nil, err;
+		return nil, err
 	}
 
-	files, err := filesLs(sh, localPath);
+	files, err := filesLs(sh, localPath)
 
 	keys := make([]string, 0, len(files))
 
@@ -417,53 +448,53 @@ func (d *driver) List(ctx context.Context, subPath string) ([]string, error) {
 		keys = append(keys, path.Join(subPath, fileName.Name))
 	}
 
-	return keys, nil;
+	return keys, nil
 }
 
 // Move moves an object stored at sourcePath to destPath, removing the original
 // object.
 func (d *driver) Move(ctx context.Context, sourcePath string, destPath string) error {
-	
+
 	domain, err := getDomain(ctx)
 
 	if err != nil {
 		return err
 	}
 
-	localSourcePath := path.Join("/", domain, sourcePath);
-	localDestPath := path.Join("/", domain, destPath);
+	localSourcePath := path.Join("/", domain, sourcePath)
+	localDestPath := path.Join("/", domain, destPath)
 
-	getLogger(ctx).Infof("Moving %s to %s", localSourcePath, localDestPath);
+	getLogger(ctx).Infof("Moving %s to %s", localSourcePath, localDestPath)
 
 	sh, err := d.getShell()
 
 	if err != nil {
-		return err;
+		return err
 	}
 
-	return filesMove(sh, localSourcePath, localDestPath);
+	return filesMove(sh, localSourcePath, localDestPath)
 }
 
 // Delete recursively deletes all objects stored at "path" and its subpaths.
 func (d *driver) Delete(ctx context.Context, subPath string) error {
 
-	getLogger(ctx).Infof("Deleting %s", subPath);
-	
+	getLogger(ctx).Infof("Deleting %s", subPath)
+
 	domain, err := getDomain(ctx)
 
 	if err != nil {
 		return err
 	}
 
-	localPath := path.Join("/", domain, subPath);
+	localPath := path.Join("/", domain, subPath)
 
 	sh, err := d.getShell()
 
 	if err != nil {
-		return err;
+		return err
 	}
 
-	return filesRm(sh, localPath);
+	return filesRm(sh, localPath)
 }
 
 // URLFor returns a URL which may be used to retrieve the content stored at the given path.
@@ -475,14 +506,14 @@ func (d *driver) URLFor(ctx context.Context, path string, options map[string]int
 // Walk traverses a filesystem defined within driver, starting
 // from the given path, calling f on each file
 func (d *driver) Walk(ctx context.Context, subPath string, f storagedriver.WalkFn) error {
-	
+
 	domain, err := getDomain(ctx)
 
 	if err != nil {
 		return err
 	}
 
-	localPath := path.Join("/", domain, subPath);
+	localPath := path.Join("/", domain, subPath)
 
 	return storagedriver.WalkFallback(ctx, d, localPath, f)
 }
@@ -494,9 +525,9 @@ type lsLinks struct {
 	Type string
 }
 
-func filesMkdir(sh *shell.Shell, dir string) (error) {
+func filesMkdir(sh *shell.Shell, dir string) error {
 
-	resp, err := sh.Request("files/mkdir", dir).Option("parents", true).Send(context.Background());
+	resp, err := sh.Request("files/mkdir", dir).Option("parents", true).Send(context.Background())
 
 	if err != nil {
 		return err
@@ -504,22 +535,26 @@ func filesMkdir(sh *shell.Shell, dir string) (error) {
 
 	defer resp.Close()
 
-	if (resp.Error != nil) {
+	if resp.Error != nil {
 
 		return resp.Error
 	}
 
-	return err;
+	return err
 }
 
 func ipfsCat(sh *shell.Shell, path string) ([]byte, error) {
 
-	return ipfsCatWithOffset(sh, path, 0);
+	return ipfsCatWithOffset(sh, path, 0)
 }
 
 func ipfsCatWithOffset(sh *shell.Shell, path string, offset int64) ([]byte, error) {
 
-	closer, err := sh.Cat(path);
+	if offset > 0 {
+		return nil, storagedriver.Error{}
+	}
+
+	closer, err := sh.Cat(path)
 
 	if err != nil {
 
@@ -527,32 +562,31 @@ func ipfsCatWithOffset(sh *shell.Shell, path string, offset int64) ([]byte, erro
 
 		if strings.HasPrefix(e, "cat: no link named") {
 
-			return nil, storagedriver.PathNotFoundError {
+			return nil, storagedriver.PathNotFoundError{
 				DriverName: "ipfs",
-				Path: path,
+				Path:       path,
 			}
 		} else if strings.HasPrefix(e, "error resolving upload: blob upload unknown") {
 
-			return nil, err;
+			return nil, err
 		}
 
-		return nil, err;
+		return nil, err
 	}
 
-	p, err := ioutil.ReadAll(closer);
+	p, err := ioutil.ReadAll(closer)
 
-	return p, err;
+	return p, err
 }
 
-
 func filesRead(sh *shell.Shell, path string) ([]byte, error) {
-	
-	return filesReadWithOffset(sh, path, 0);
+
+	return filesReadWithOffset(sh, path, 0)
 }
 
 func filesReadWithOffset(sh *shell.Shell, path string, offset int64) ([]byte, error) {
 
-	resp, err := sh.Request("files/read", path).Option("offset", offset).Send(context.Background());
+	resp, err := sh.Request("files/read", path).Option("offset", offset).Send(context.Background())
 
 	if err != nil {
 		return nil, err
@@ -560,37 +594,36 @@ func filesReadWithOffset(sh *shell.Shell, path string, offset int64) ([]byte, er
 
 	defer resp.Close()
 
-	if (resp.Error != nil) {
+	if resp.Error != nil {
 
 		if resp.Error.Message == "file does not exist" {
 
-			return nil, storagedriver.PathNotFoundError {
+			return nil, storagedriver.PathNotFoundError{
 				DriverName: "ipfs",
-				Path: path,
+				Path:       path,
 			}
 		}
 
 		return nil, resp.Error
 	}
 
-	p, err := ioutil.ReadAll(resp.Output);
+	p, err := ioutil.ReadAll(resp.Output)
 
-	if (err != nil) {
-		return nil, err;
+	if err != nil {
+		return nil, err
 	}
 
-	return p, err;
+	return p, err
 }
 
 func getLogger(ctx context.Context) dcontext.Logger {
 
 	return dcontext.GetLoggerWithFields(ctx, map[interface{}]interface{}{
 		"driver": "ipfs",
-	});
+	})
 }
 
-
-func (d* driver) getIpfsAddressFromDomain(domain string) (string, error) {
+func (d *driver) getIpfsAddressFromDomain(domain string) (string, error) {
 
 	txtrecords, err := net.LookupTXT(domain)
 
@@ -598,7 +631,7 @@ func (d* driver) getIpfsAddressFromDomain(domain string) (string, error) {
 		return "", err
 	}
 
-	hasHash := false;
+	hasHash := false
 
 	for _, txt := range txtrecords {
 
@@ -608,9 +641,9 @@ func (d* driver) getIpfsAddressFromDomain(domain string) (string, error) {
 
 			txt = strings.Replace(txt, "ipfsnode=", "", 1)
 
-			json.Unmarshal([]byte(txt), &out);
+			json.Unmarshal([]byte(txt), &out)
 
-			sh, err := d.getShell();
+			sh, err := d.getShell()
 
 			if err != nil {
 				return "", nil
@@ -635,68 +668,68 @@ func (d* driver) getIpfsAddressFromDomain(domain string) (string, error) {
 		return "", nil
 	}
 
-	return "/ipns/" + domain, nil;
+	return "/ipns/" + domain, nil
 }
 
 func getDomain(ctx context.Context) (string, error) {
 
-	name := dcontext.GetStringValue(ctx, "name");
+	name := dcontext.GetStringValue(ctx, "name")
 
-	if (name == "") {
+	if name == "" {
 
-		return "", nil;
+		return "", nil
 	}
 
 	ref, err := reference.ParseNamed(name)
 
 	if err != nil {
 
-		return "", err;
+		return "", err
 	}
 
-	domain := reference.Domain(ref);
+	domain := reference.Domain(ref)
 
-	return domain, nil;
+	return domain, nil
 }
 
-func (d* driver) getShell() (*shell.Shell, error) {
+func (d *driver) getShell() (*shell.Shell, error) {
 
-	sh := shell.NewShell(d.address);
+	sh := shell.NewShell(d.address)
 
-	return sh, nil;
+	return sh, nil
 }
 
 func doesFileExistLocally(sh *shell.Shell, subPath string) (bool, error) {
 
 	// If this doesn't exist, we move into IPFS mode
-	_, err := filesStat(sh, subPath);
+	_, err := filesStat(sh, subPath)
 
 	if err != nil {
 		switch err.(type) {
 
-			case storagedriver.PathNotFoundError:
-				return false, nil;
-			default:
-				return false, err;
+		case storagedriver.PathNotFoundError:
+			return false, nil
+		default:
+			return false, err
 		}
 	}
 
-	return true, nil;
+	return true, nil
 }
 
 // FilesStat gets file info
 func filesStat(sh *shell.Shell, path string) (shell.LsLink, error) {
 
-	var out struct { lsLinks }
+	var out struct{ lsLinks }
 
 	err := sh.Request("files/stat", path).Exec(context.Background(), &out)
 
 	if err != nil {
 
-		e := err.Error();
+		e := err.Error()
 
 		if e == "files/stat: file does not exist" {
-			return shell.LsLink{}, storagedriver.PathNotFoundError {
+			return shell.LsLink{}, storagedriver.PathNotFoundError{
 				Path: path,
 			}
 		}
@@ -704,10 +737,10 @@ func filesStat(sh *shell.Shell, path string) (shell.LsLink, error) {
 		return shell.LsLink{}, err
 	}
 
-	t := 0;
+	t := 0
 
 	if out.Type == "directory" {
-		t = 1;
+		t = 1
 	}
 
 	return shell.LsLink{
@@ -715,52 +748,51 @@ func filesStat(sh *shell.Shell, path string) (shell.LsLink, error) {
 		Size: out.Size,
 		Name: out.Name,
 		Type: t,
-	}, nil;
+	}, nil
 }
 
 // filesRm removes a file
-func filesRm(sh *shell.Shell, path string) (error) {
+func filesRm(sh *shell.Shell, path string) error {
 
-	resp, err := sh.Request("files/rm", path).Option("recursive", true).Send(context.Background());
+	resp, err := sh.Request("files/rm", path).Option("recursive", true).Send(context.Background())
 
-	
 	if err != nil {
 		return err
 	}
 
 	defer resp.Close()
 
-	return nil;
+	return nil
 }
 
 // filesMove moves a file
-func filesMove(sh *shell.Shell, source string, destination string) (error) {
+func filesMove(sh *shell.Shell, source string, destination string) error {
 
-	err := filesMkdir(sh, path.Dir(destination));
-
-	if err != nil {
-		return err;
-	}
-
-	resp, err := sh.Request("files/mv", source, destination).Send(context.Background());
+	err := filesMkdir(sh, path.Dir(destination))
 
 	if err != nil {
 		return err
 	}
 
-	if (resp.Error != nil) {
+	resp, err := sh.Request("files/mv", source, destination).Send(context.Background())
+
+	if err != nil {
+		return err
+	}
+
+	if resp.Error != nil {
 
 		if resp.Error.Message == "file does not exist" {
 
-			return storagedriver.PathNotFoundError {
+			return storagedriver.PathNotFoundError{
 				Path: source,
-			} 
+			}
 		}
 	}
 
 	defer resp.Close()
 
-	return nil;
+	return nil
 }
 
 // FilesWrite writes to a file
@@ -768,31 +800,31 @@ func filesWrite(sh *shell.Shell, path string, p []byte, append bool) (int, error
 
 	var offset uint64
 
-	if (append) {
+	if append {
 
-		size, err := filesStat(sh, path);
+		size, err := filesStat(sh, path)
 
 		if err != nil {
 
 			switch err := err.(type) {
 
-				case storagedriver.PathNotFoundError:
-					
-				default:
-					return -1, err
+			case storagedriver.PathNotFoundError:
+
+			default:
+				return -1, err
 			}
 		}
 
-		offset = size.Size;
+		offset = size.Size
 	}
 
-	fileReader := files.NewReaderFile(bytes.NewReader(p));
+	fileReader := files.NewReaderFile(bytes.NewReader(p))
 
 	sliceDirectory := files.NewSliceDirectory([]files.DirEntry{files.FileEntry("", fileReader)})
 
 	multiFileReader := files.NewMultiFileReader(sliceDirectory, true)
 
-	resp, err := sh.Request("files/write", path).Option("create", true).Option("offset", offset).Option("parents", true).Body(multiFileReader).Send(context.Background());
+	resp, err := sh.Request("files/write", path).Option("create", true).Option("offset", offset).Option("parents", true).Body(multiFileReader).Send(context.Background())
 
 	if err != nil {
 		return -1, err
@@ -800,13 +832,13 @@ func filesWrite(sh *shell.Shell, path string, p []byte, append bool) (int, error
 
 	defer resp.Close()
 
-	return len(p), err;
+	return len(p), err
 }
 
 // filesLs gets a list of files in a directory
 func filesLs(sh *shell.Shell, path string) ([]shell.LsLink, error) {
 
-	var out struct { Entries []shell.LsLink }
+	var out struct{ Entries []shell.LsLink }
 
 	err := sh.Request("files/ls", path).Exec(context.Background(), &out)
 
@@ -817,9 +849,9 @@ func filesLs(sh *shell.Shell, path string) ([]shell.LsLink, error) {
 	return out.Entries, nil
 }
 
-func swarmConnect(sh *shell.Shell, address string) (error) {
+func swarmConnect(sh *shell.Shell, address string) error {
 
-	var out struct { Strings []string }
+	var out struct{ Strings []string }
 
 	err := sh.Request("swarm/connect", address).Exec(context.Background(), &out)
 
