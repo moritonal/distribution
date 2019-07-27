@@ -11,7 +11,6 @@ import (
 	"net"
 	"path"
 	"strings"
-	"mime/multipart"
 
 	storagedriver "github.com/docker/distribution/registry/storage/driver"
 	shell "github.com/ipfs/go-ipfs-api"
