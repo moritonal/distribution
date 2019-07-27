@@ -1,33 +1,63 @@
 package ipfs
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"log"
 
-	shell "github.com/ipfs/go-ipfs-api"
 	storagedriver "github.com/docker/distribution/registry/storage/driver"
+	shell "github.com/ipfs/go-ipfs-api"
 )
 
 type ipfsWriter struct {
-	shell      *shell.Shell
-	append    bool
-	subPath		string
-	// bw        *bufio.Writer
+	shell   *shell.Shell
+	append  bool
+	subPath string
 	closed    bool
 	committed bool
 	cancelled bool
+	offset    int64
+	stream    *bytes.Buffer
+	resp      *shell.Response
+	writer    io.Writer
 }
 
-func newIpfsWriter(shell *shell.Shell, subPath string, append bool) *ipfsWriter {
+func newIpfsWriter(shell *shell.Shell, subPath string, append bool) (*ipfsWriter, error) {
 
-	log.Printf("Opened Writer for " + subPath);
+	log.Printf("Opened Writer for " + subPath)
 
-	return &ipfsWriter{
-		shell: shell,
+	writer := &ipfsWriter{
+		shell:   shell,
 		subPath: subPath,
-		append: append,
+		append:  append,
+		offset:  0,
 	}
+
+	// Make sure the file exists
+	_, err := writer.Write(make([]byte, 0))
+
+	if err != nil {
+		return nil, err
+	}
+
+	// If we are appending, find the end.
+	if append {
+
+		writer.offset = writer.Size()
+	}
+
+	return writer, nil
 }
+
+type nopCloser struct {
+    io.Reader
+}
+
+func (nopCloser) Close() error {
+	 return nil
+}
+
 
 func (fw *ipfsWriter) Write(p []byte) (int, error) {
 
@@ -39,9 +69,11 @@ func (fw *ipfsWriter) Write(p []byte) (int, error) {
 		return 0, fmt.Errorf("already cancelled")
 	}
 
-	l, err := filesWrite(fw.shell, fw.subPath, p, true);
+	bytesWritten, err := filesWrite(fw.shell, fw.subPath, p, false, fw.offset, false)
 
-	return l, err
+	fw.offset += int64(bytesWritten)
+
+	return bytesWritten, err
 }
 
 func (fw *ipfsWriter) Size() int64 {
@@ -52,14 +84,14 @@ func (fw *ipfsWriter) Size() int64 {
 
 		switch err.(type) {
 
-			case storagedriver.PathNotFoundError:
-				return 0
-			default:
-				return -1
+		case storagedriver.PathNotFoundError:
+			return 0
+		default:
+			return -1
 		}
 	}
 
-	return int64(file.Size);
+	return int64(file.Size)
 }
 
 func (fw *ipfsWriter) Close() error {
@@ -67,6 +99,10 @@ func (fw *ipfsWriter) Close() error {
 	if fw.closed {
 		return fmt.Errorf("already closed")
 	}
+
+	log.Printf("Closing and flushing %s", fw.subPath)
+
+	filesFlush(fw.shell, fw.subPath)
 
 	fw.closed = true
 
@@ -79,9 +115,17 @@ func (fw *ipfsWriter) Cancel() error {
 		return fmt.Errorf("already closed")
 	}
 
+	err := fw.resp.Close()
+
+	if err != nil {
+		return err
+	}
+
+	filesFlush(fw.shell, fw.subPath)
+
 	fw.cancelled = true
-	
-	return nil;
+
+	return nil
 }
 
 func (fw *ipfsWriter) Commit() error {
@@ -93,6 +137,8 @@ func (fw *ipfsWriter) Commit() error {
 	} else if fw.cancelled {
 		return fmt.Errorf("already cancelled")
 	}
+
+	filesFlush(fw.shell, fw.subPath)
 
 	fw.committed = true
 

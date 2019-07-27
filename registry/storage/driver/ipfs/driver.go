@@ -11,6 +11,7 @@ import (
 	"net"
 	"path"
 	"strings"
+	"mime/multipart"
 
 	storagedriver "github.com/docker/distribution/registry/storage/driver"
 	shell "github.com/ipfs/go-ipfs-api"
@@ -229,7 +230,7 @@ func (d *driver) PutContent(ctx context.Context, subPath string, contents []byte
 		return err
 	}
 
-	_, err = filesWrite(sh, localPath, contents, false)
+	_, err = filesWrite(sh, localPath, contents, true, 0, true)
 
 	return err
 }
@@ -306,7 +307,13 @@ func (d *driver) Writer(ctx context.Context, subPath string, append bool) (stora
 		return nil, err
 	}
 
-	return newIpfsWriter(sh, localPath, append), nil
+	writer, err := newIpfsWriter(sh, localPath, append)
+
+	if err != nil {
+		return nil, err;
+	}
+
+	return writer, nil;
 }
 
 // Stat retrieves the FileInfo for the given path, including the current size
@@ -796,27 +803,7 @@ func filesMove(sh *shell.Shell, source string, destination string) error {
 }
 
 // FilesWrite writes to a file
-func filesWrite(sh *shell.Shell, path string, p []byte, append bool) (int, error) {
-
-	var offset uint64
-
-	if append {
-
-		size, err := filesStat(sh, path)
-
-		if err != nil {
-
-			switch err := err.(type) {
-
-			case storagedriver.PathNotFoundError:
-
-			default:
-				return -1, err
-			}
-		}
-
-		offset = size.Size
-	}
+func filesWrite(sh *shell.Shell, path string, p []byte, truncate bool, offset int64, flush bool) (int, error) {
 
 	fileReader := files.NewReaderFile(bytes.NewReader(p))
 
@@ -824,7 +811,7 @@ func filesWrite(sh *shell.Shell, path string, p []byte, append bool) (int, error
 
 	multiFileReader := files.NewMultiFileReader(sliceDirectory, true)
 
-	resp, err := sh.Request("files/write", path).Option("create", true).Option("offset", offset).Option("parents", true).Body(multiFileReader).Send(context.Background())
+	resp, err := sh.Request("files/write", path).Option("create", true).Option("truncate", truncate).Option("offset", offset).Option("parents", true).Option("flush", flush).Body(multiFileReader).Send(context.Background())
 
 	if err != nil {
 		return -1, err
@@ -849,6 +836,19 @@ func filesLs(sh *shell.Shell, path string) ([]shell.LsLink, error) {
 	return out.Entries, nil
 }
 
+// filesFlush gets a list of files in a directory
+func filesFlush(sh *shell.Shell, path string) (string, error) {
+
+	var out struct{ Cid string }
+
+	err := sh.Request("files/flush", path).Exec(context.Background(), &out)
+
+	if err != nil {
+		return "", err
+	}
+
+	return out.Cid, nil
+}
 func swarmConnect(sh *shell.Shell, address string) error {
 
 	var out struct{ Strings []string }
