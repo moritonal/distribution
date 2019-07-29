@@ -101,7 +101,7 @@ func fromParametersImpl(parameters map[string]interface{}) (*DriverParameters, e
 		}
 
 		if dir, ok := parameters["direction"]; ok {
-			direction = fmt.Sprint(dir)
+			direction = strings.ToLower(fmt.Sprint(dir));
 		}
 
 		if addr, ok := parameters["address"]; ok {
@@ -170,7 +170,7 @@ func (d *driver) GetContent(ctx context.Context, subPath string) ([]byte, error)
 	tmp := d.direction
 
 	switch tmp {
-	case "in":
+	case "download":
 		ipfsPath, subErr := d.getIpfsAddressFromDomain(domain)
 
 		if subErr != nil {
@@ -197,7 +197,7 @@ func (d *driver) GetContent(ctx context.Context, subPath string) ([]byte, error)
 
 		return p, nil
 
-	case "out":
+	case "upload":
 		p, err := filesRead(sh, localPath)
 
 		if err != nil {
@@ -253,7 +253,7 @@ func (d *driver) Reader(ctx context.Context, subPath string, offset int64) (io.R
 	tmp := d.direction
 
 	switch tmp {
-	case "in":
+	case "download":
 		ipfsPath, err := d.getIpfsAddressFromDomain(domain)
 
 		if err != nil {
@@ -274,7 +274,7 @@ func (d *driver) Reader(ctx context.Context, subPath string, offset int64) (io.R
 
 		return closer, nil
 
-	case "out":
+	case "upload":
 		p, err := filesReadWithOffset(sh, localPath, offset)
 
 		if err != nil {
@@ -350,7 +350,7 @@ func (d *driver) Stat(ctx context.Context, subPath string) (storagedriver.FileIn
 	tmp := d.direction
 
 	switch tmp {
-	case "in":
+	case "download":
 		ipfsPath, err := d.getIpfsAddressFromDomain(domain)
 
 		if err != nil {
@@ -400,7 +400,7 @@ func (d *driver) Stat(ctx context.Context, subPath string) (storagedriver.FileIn
 			}
 		}
 
-	case "out":
+	case "upload":
 		file, err = filesStat(sh, localPath)
 
 		if err != nil {
@@ -658,9 +658,21 @@ func (d *driver) getIpfsAddressFromDomain(domain string) (string, error) {
 			for _, address := range out {
 
 				err = swarmConnect(sh, address)
-
+				
 				if err != nil {
-					return "", err
+
+					errText := err.Error()
+
+					if strings.HasSuffix(errText, "failure: dial to self attempted") {
+
+						// Ignore calls to connect to ourselves
+
+					} else if strings.HasSuffix(errText, "connect: connection refused") {
+
+						// Ignore calls that failed to connect
+					} else {
+						return "", err
+					}
 				}
 			}
 		}
