@@ -50,15 +50,6 @@ func newIpfsWriter(shell *shell.Shell, subPath string, append bool) (*ipfsWriter
 	return writer, nil
 }
 
-type nopCloser struct {
-    io.Reader
-}
-
-func (nopCloser) Close() error {
-	 return nil
-}
-
-
 func (fw *ipfsWriter) Write(p []byte) (int, error) {
 
 	if fw.closed {
